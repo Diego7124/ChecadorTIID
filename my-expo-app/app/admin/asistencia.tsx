@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, Alert, ActivityIndicator, StyleSheet } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system';
+import { useFocusEffect } from '@react-navigation/native';
 import { registrarAsistencia, asistenciaHoy } from '../../services/api';
 import { Asistencia } from '../../types';
 
@@ -10,16 +11,23 @@ export default function AsistenciaScreen() {
   const [showCamera, setShowCamera] = useState(false);
   const [tipo, setTipo] = useState<'entrada' | 'salida'>('entrada');
   const [loading, setLoading] = useState(false);
+  const [loadingData, setLoadingData] = useState(true);
   const [countdown, setCountdown] = useState(0);
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<any>(null);
 
   const cargarAsistencias = async () => {
+    setLoadingData(true);
     try { const res = await asistenciaHoy(); setAsistencias(res.data); }
     catch (e) { console.error(e); }
+    setLoadingData(false);
   };
 
-  useEffect(() => { cargarAsistencias(); }, []);
+  useFocusEffect(
+    useCallback(() => {
+      cargarAsistencias();
+    }, [])
+  );
 
   const abrirCamara = async (t: 'entrada' | 'salida') => {
     if (!permission?.granted) { await requestPermission(); return; }
@@ -99,8 +107,14 @@ export default function AsistenciaScreen() {
         </TouchableOpacity>
       </View>
 
-      <Text style={s.sectionTitle}>Asistencia del día</Text>
+      <Text style={s.sectionTitle}>Asistencia del dia</Text>
 
+      {loadingData ? (
+        <View style={s.centered}>
+          <ActivityIndicator size="large" color="#2563eb" />
+          <Text style={s.loadingText}>Cargando asistencia...</Text>
+        </View>
+      ) : (
       <FlatList
         data={asistencias}
         keyExtractor={(item) => item.id.toString()}
@@ -121,6 +135,7 @@ export default function AsistenciaScreen() {
         contentContainerStyle={{ paddingBottom: 20 }}
         ListEmptyComponent={<Text style={s.empty}>No hay registros hoy</Text>}
       />
+      )}
     </View>
   );
 }
@@ -129,6 +144,8 @@ const s = StyleSheet.create({
   black: { flex: 1, backgroundColor: '#000' },
   overlay: { ...StyleSheet.absoluteFillObject, justifyContent: 'space-between', alignItems: 'center', paddingTop: 60, paddingBottom: 40 },
   topInfo: { alignItems: 'center' },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, color: '#6b7280', fontSize: 14 },
   overlayTitle: { color: '#fff', fontSize: 22, fontWeight: 'bold', textTransform: 'capitalize' },
   overlaySub: { color: 'rgba(255,255,255,0.7)', fontSize: 14, marginTop: 4 },
   ovalContainer: { alignItems: 'center', justifyContent: 'center' },

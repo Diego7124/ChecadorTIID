@@ -56,6 +56,9 @@ export const registrarAsistencia = (imagen_base64: string, tipo: string) =>
 
 export const asistenciaHoy = () => api.get('/asistencia/hoy');
 
+export const estadoHoy = (usuarioId: number) =>
+  api.get(`/asistencia/estado-hoy/${usuarioId}`);
+
 export const historialUsuario = (id: number, periodo: string, fecha?: string) => {
   const params = new URLSearchParams({ periodo });
   if (fecha) params.append('fecha_ref', fecha);
@@ -83,6 +86,16 @@ export const editarHorario = (id: number, data: Record<string, any>) =>
 
 export const eliminarHorario = (id: number) => api.delete(`/horarios/${id}`);
 
+// Horarios por usuario
+export const listarHorariosUsuario = (usuarioId: number) =>
+  api.get(`/usuarios/${usuarioId}/horarios`);
+
+export const asignarHorario = (usuarioId: number, horarioId: number) =>
+  api.post(`/usuarios/${usuarioId}/horarios/${horarioId}`);
+
+export const desasignarHorario = (usuarioId: number, horarioId: number) =>
+  api.delete(`/usuarios/${usuarioId}/horarios/${horarioId}`);
+
 // Permisos
 export const crearPermiso = (data: {
   usuario_id: number;
@@ -108,5 +121,30 @@ export const editarPermiso = (id: number, data: Record<string, any>) =>
   api.put(`/permisos/${id}`, data);
 
 export const eliminarPermiso = (id: number) => api.delete(`/permisos/${id}`);
+
+// Reportes
+export const reporteUsuario = (usuarioId: number, periodo: string, fecha?: string) => {
+  const params = new URLSearchParams({ periodo });
+  if (fecha) params.append('fecha_ref', fecha);
+  return api.get(`/reportes/usuario/${usuarioId}?${params.toString()}`);
+};
+
+export const reporteArea = (area: string, periodo: string, fecha?: string) => {
+  const params = new URLSearchParams({ periodo });
+  if (fecha) params.append('fecha_ref', fecha);
+  return api.get(`/reportes/area/${encodeURIComponent(area)}?${params.toString()}`);
+};
+
+export const reporteRetardos = (periodo: string, fecha?: string) => {
+  const params = new URLSearchParams({ periodo });
+  if (fecha) params.append('fecha_ref', fecha);
+  return api.get(`/reportes/retardos?${params.toString()}`);
+};
+
+export const reporteFaltas = (periodo: string, fecha?: string) => {
+  const params = new URLSearchParams({ periodo });
+  if (fecha) params.append('fecha_ref', fecha);
+  return api.get(`/reportes/faltas?${params.toString()}`);
+};
 
 export default api;

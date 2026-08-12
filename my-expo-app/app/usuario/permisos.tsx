@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, TextInput, Alert, Modal, StyleSheet } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { View, Text, FlatList, TouchableOpacity, TextInput, Alert, Modal, ActivityIndicator, StyleSheet } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { crearPermiso, historialPermisosUsuario, editarPermiso, eliminarPermiso } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import { Permiso } from '../../types';
@@ -18,19 +19,27 @@ export default function PermisosScreen() {
   const [showInicio, setShowInicio] = useState(false);
   const [showFin, setShowFin] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const { usuario } = useAuthStore();
 
   const cargarPermisos = async () => {
     if (!usuario) return;
+    setLoading(true);
     try {
       const res = await historialPermisosUsuario(usuario.id, periodo);
       setPermisos(res.data);
     } catch (e) {
       console.error(e);
     }
+    setLoading(false);
   };
 
-  useEffect(() => { cargarPermisos(); }, [periodo]);
+  useFocusEffect(
+    useCallback(() => {
+      cargarPermisos();
+    }, [periodo])
+  );
 
   const abrirModal = (permiso?: Permiso) => {
     if (permiso) {
@@ -51,6 +60,7 @@ export default function PermisosScreen() {
 
   const handleGuardar = async () => {
     if (!usuario) return;
+    setSaving(true);
     try {
       const data = {
         usuario_id: usuario.id,
@@ -69,6 +79,7 @@ export default function PermisosScreen() {
     } catch (e: any) {
       Alert.alert('Error', e.response?.data?.detail || 'No se pudo guardar');
     }
+    setSaving(false);
   };
 
   const handleEliminar = (id: number) => {
@@ -109,6 +120,12 @@ export default function PermisosScreen() {
         ))}
       </View>
 
+      {loading ? (
+        <View style={s.centered}>
+          <ActivityIndicator size="large" color="#16a34a" />
+          <Text style={s.loadingText}>Cargando permisos...</Text>
+        </View>
+      ) : (
       <FlatList
         data={permisos}
         keyExtractor={(item) => item.id.toString()}
@@ -142,6 +159,7 @@ export default function PermisosScreen() {
         }}
         ListEmptyComponent={<Text style={s.empty}>No hay permisos registrados</Text>}
       />
+      )}
 
       <Modal visible={modalVisible} animationType="slide" transparent>
         <View style={s.modalOverlay}>
@@ -173,8 +191,8 @@ export default function PermisosScreen() {
               <TouchableOpacity onPress={() => setModalVisible(false)} style={s.cancelModalBtn}>
                 <Text style={s.cancelModalText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={handleGuardar} style={s.saveModalBtn}>
-                <Text style={s.saveModalText}>Guardar</Text>
+              <TouchableOpacity onPress={handleGuardar} style={s.saveModalBtn} disabled={saving}>
+                {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.saveModalText}>Guardar</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -186,6 +204,8 @@ export default function PermisosScreen() {
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f3f4f6' },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, color: '#6b7280', fontSize: 14 },
   newBtn: { backgroundColor: '#16a34a', marginHorizontal: 16, marginTop: 16, paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
   newBtnText: { color: '#fff', fontWeight: 'bold' },
   periodRow: { flexDirection: 'row', gap: 8, padding: 16 },

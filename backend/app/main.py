@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .database import engine, Base
-from .routers import usuarios, asistencia, horarios, vacaciones
+from .routers import usuarios, asistencia, horarios, vacaciones, reportes
 
 Base.metadata.create_all(bind=engine)
 
@@ -25,6 +25,7 @@ app.include_router(usuarios.router)
 app.include_router(asistencia.router)
 app.include_router(horarios.router)
 app.include_router(vacaciones.router)
+app.include_router(reportes.router)
 
 
 @app.get("/")

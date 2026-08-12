@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import { useState, useCallback } from 'react';
+import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { historialUsuario } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
 import { Asistencia } from '../../types';
@@ -9,15 +10,20 @@ type Periodo = 'semana' | 'mes' | 'anio';
 export default function MiHistorialScreen() {
   const [asistencias, setAsistencias] = useState<Asistencia[]>([]);
   const [periodo, setPeriodo] = useState<Periodo>('mes');
+  const [loading, setLoading] = useState(true);
   const { usuario } = useAuthStore();
 
-  useEffect(() => {
-    if (usuario) {
-      historialUsuario(usuario.id, periodo)
-        .then((res) => setAsistencias(res.data))
-        .catch(console.error);
-    }
-  }, [periodo, usuario]);
+  useFocusEffect(
+    useCallback(() => {
+      if (usuario) {
+        setLoading(true);
+        historialUsuario(usuario.id, periodo)
+          .then((res) => setAsistencias(res.data))
+          .catch(console.error)
+          .finally(() => setLoading(false));
+      }
+    }, [periodo, usuario])
+  );
 
   const getResumen = () => {
     const entradas = asistencias.filter((a) => a.tipo === 'entrada').length;
@@ -57,6 +63,12 @@ export default function MiHistorialScreen() {
         ))}
       </View>
 
+      {loading ? (
+        <View style={s.centered}>
+          <ActivityIndicator size="large" color="#16a34a" />
+          <Text style={s.loadingText}>Cargando historial...</Text>
+        </View>
+      ) : (
       <FlatList
         data={asistencias}
         keyExtractor={(item) => item.id.toString()}
@@ -78,12 +90,15 @@ export default function MiHistorialScreen() {
           <Text style={s.empty}>Sin registros para este período</Text>
         }
       />
+      )}
     </View>
   );
 }
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f3f4f6' },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, color: '#6b7280', fontSize: 14 },
   summaryCard: { backgroundColor: '#fff', padding: 16, marginHorizontal: 16, marginTop: 16, borderRadius: 12 },
   summaryTitle: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 8 },

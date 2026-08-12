@@ -1,9 +1,21 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, Alert, ActivityIndicator, StyleSheet } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system';
-import { registrarAsistencia } from '../../services/api';
+import { useFocusEffect } from '@react-navigation/native';
+import { registrarAsistencia, estadoHoy } from '../../services/api';
 import { useAuthStore } from '../../store/authStore';
+
+interface EstadoDia {
+  horario_nombre: string;
+  hora_entrada: string;
+  hora_salida: string;
+  tolerancia_min: number;
+  registro_entrada: string;
+  registro_salida: string;
+  retraso_min: number;
+  tiene_retardo: boolean;
+}
 
 export default function ChecarScreen() {
   const [showCamera, setShowCamera] = useState(false);
@@ -13,6 +25,21 @@ export default function ChecarScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<any>(null);
   const { usuario } = useAuthStore();
+  const [estado, setEstado] = useState<EstadoDia | null>(null);
+
+  const cargarEstado = async () => {
+    if (!usuario) return;
+    try {
+      const res = await estadoHoy(usuario.id);
+      setEstado(res.data);
+    } catch { }
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      cargarEstado();
+    }, [])
+  );
 
   const abrirCamara = async (t: 'entrada' | 'salida') => {
     if (!permission?.granted) { await requestPermission(); return; }
@@ -40,7 +67,8 @@ export default function ChecarScreen() {
           }
           setShowCamera(false);
           await registrarAsistencia(b64, tipo);
-          Alert.alert('Éxito', `${tipo === 'entrada' ? 'Entrada' : 'Salida'} registrada correctamente`);
+          Alert.alert('Exito', `${tipo === 'entrada' ? 'Entrada' : 'Salida'} registrada correctamente`);
+          cargarEstado();
         } catch (e: any) {
           Alert.alert('Error', e.response?.data?.detail || e.message || 'No se pudo registrar asistencia');
         } finally { setLoading(false); }
@@ -55,7 +83,7 @@ export default function ChecarScreen() {
         <View style={s.overlay}>
           <View style={s.topInfo}>
             <Text style={s.overlayTitle}>Registrar {tipo}</Text>
-            <Text style={s.overlaySub}>Coloca tu rostro en el óvalo</Text>
+            <Text style={s.overlaySub}>Coloca tu rostro en el ovalo</Text>
           </View>
 
           <View style={s.ovalContainer}>
@@ -84,19 +112,89 @@ export default function ChecarScreen() {
     );
   }
 
+  const yaChecoEntrada = !!estado?.registro_entrada;
+  const yaChecoSalida = !!estado?.registro_salida;
+
   return (
     <View style={s.screen}>
       <View style={s.card}>
         <Text style={s.greeting}>Hola, {usuario?.nombre}</Text>
-        <Text style={s.greetingSub}>Presiona el botón para checar tu asistencia</Text>
 
-        <TouchableOpacity onPress={() => abrirCamara('entrada')} style={s.entradaBtn} disabled={loading}>
-          <Text style={s.btnWhite}>Registrar Entrada</Text>
-        </TouchableOpacity>
+        {estado?.horario_nombre ? (
+          <View style={s.scheduleBox}>
+            <Text style={s.scheduleLabel}>Tu horario</Text>
+            <Text style={s.scheduleName}>{estado.horario_nombre}</Text>
+            <View style={s.scheduleRow}>
+              <View style={s.scheduleItem}>
+                <Text style={s.scheduleTime}>{estado.hora_entrada}</Text>
+                <Text style={s.scheduleDesc}>Entrada</Text>
+              </View>
+              <View style={s.scheduleDivider} />
+              <View style={s.scheduleItem}>
+                <Text style={s.scheduleTime}>{estado.hora_salida}</Text>
+                <Text style={s.scheduleDesc}>Salida</Text>
+              </View>
+            </View>
+            <Text style={s.toleranceText}>Tolerancia: {estado.tolerancia_min} min</Text>
+          </View>
+        ) : (
+          <View style={s.scheduleBox}>
+            <Text style={s.scheduleLabel}>Sin horario asignado</Text>
+            <Text style={s.noSchedule}>Contacta al administrador</Text>
+          </View>
+        )}
 
-        <TouchableOpacity onPress={() => abrirCamara('salida')} style={s.salidaBtn} disabled={loading}>
-          <Text style={s.btnWhite}>Registrar Salida</Text>
-        </TouchableOpacity>
+        {yaChecoEntrada && (
+          <View style={s.statusBox}>
+            <View style={s.statusRow}>
+              <Text style={s.statusIcon}>✅</Text>
+              <View>
+                <Text style={s.statusTitle}>Entrada registrada</Text>
+                <Text style={s.statusTime}>{estado?.registro_entrada}</Text>
+              </View>
+            </View>
+            {estado?.tiene_retardo && (
+              <View style={s.delayBadge}>
+                <Text style={s.delayText}>Retardo: {estado.retraso_min} min</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {yaChecoSalida && (
+          <View style={s.statusBox}>
+            <View style={s.statusRow}>
+              <Text style={s.statusIcon}>✅</Text>
+              <View>
+                <Text style={s.statusTitle}>Salida registrada</Text>
+                <Text style={s.statusTime}>{estado?.registro_salida}</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        <View style={s.buttonsContainer}>
+          <TouchableOpacity
+            onPress={() => abrirCamara('entrada')}
+            style={[s.entradaBtn, yaChecoEntrada && s.btnDisabled]}
+            disabled={loading || yaChecoEntrada}
+          >
+            <Text style={s.btnIcon}>📥</Text>
+            <Text style={s.btnWhite}>Registrar Entrada</Text>
+            {yaChecoEntrada && <Text style={s.btnDone}>Ya checaste</Text>}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => abrirCamara('salida')}
+            style={[s.salidaBtn, (!yaChecoEntrada || yaChecoSalida) && s.btnDisabled]}
+            disabled={loading || !yaChecoEntrada || yaChecoSalida}
+          >
+            <Text style={s.btnIcon}>📤</Text>
+            <Text style={s.btnWhite}>Registrar Salida</Text>
+            {!yaChecoEntrada && <Text style={s.btnDone}>Primero checa entrada</Text>}
+            {yaChecoSalida && <Text style={s.btnDone}>Ya checaste</Text>}
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -116,11 +214,75 @@ const s = StyleSheet.create({
   captureBtnText: { fontSize: 18, fontWeight: 'bold', color: '#000' },
   cancelBtnArea: { paddingVertical: 8 },
   cancelText: { color: 'rgba(255,255,255,0.7)', fontSize: 16 },
-  screen: { flex: 1, backgroundColor: '#f0fdf4', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
-  card: { backgroundColor: '#fff', borderRadius: 16, padding: 32, width: '100%', alignItems: 'center' },
-  greeting: { fontSize: 24, fontWeight: 'bold', color: '#1f2937', marginBottom: 8 },
-  greetingSub: { color: '#6b7280', marginBottom: 32, textAlign: 'center' },
-  entradaBtn: { width: '100%', backgroundColor: '#22c55e', paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginBottom: 16 },
-  salidaBtn: { width: '100%', backgroundColor: '#ef4444', paddingVertical: 16, borderRadius: 12, alignItems: 'center' },
-  btnWhite: { color: '#fff', fontWeight: 'bold', fontSize: 18 },
+  screen: { flex: 1, backgroundColor: '#f0fdf4', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
+  card: { backgroundColor: '#fff', borderRadius: 20, padding: 24, width: '100%', alignItems: 'center' },
+  greeting: { fontSize: 22, fontWeight: 'bold', color: '#1f2937', marginBottom: 16 },
+
+  scheduleBox: {
+    width: '100%',
+    backgroundColor: '#f8fafc',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  scheduleLabel: { fontSize: 12, fontWeight: '600', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.5 },
+  scheduleName: { fontSize: 18, fontWeight: 'bold', color: '#1e293b', marginTop: 4, marginBottom: 12 },
+  scheduleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 20 },
+  scheduleItem: { alignItems: 'center' },
+  scheduleTime: { fontSize: 22, fontWeight: '800', color: '#16a34a' },
+  scheduleDesc: { fontSize: 13, color: '#64748b', marginTop: 2 },
+  scheduleDivider: { width: 1, height: 30, backgroundColor: '#e2e8f0' },
+  toleranceText: { fontSize: 12, color: '#94a3b8', textAlign: 'center', marginTop: 10 },
+  noSchedule: { fontSize: 14, color: '#94a3b8', marginTop: 4 },
+
+  statusBox: {
+    width: '100%',
+    backgroundColor: '#f0fdf4',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  statusIcon: { fontSize: 20 },
+  statusTitle: { fontSize: 14, fontWeight: '600', color: '#166534' },
+  statusTime: { fontSize: 13, color: '#16a34a', fontWeight: '700' },
+  delayBadge: {
+    marginTop: 8,
+    backgroundColor: '#fef3c7',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    alignSelf: 'flex-start',
+  },
+  delayText: { fontSize: 13, fontWeight: '600', color: '#b45309' },
+
+  buttonsContainer: { width: '100%', gap: 12, marginTop: 8 },
+  entradaBtn: {
+    width: '100%',
+    backgroundColor: '#22c55e',
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  salidaBtn: {
+    width: '100%',
+    backgroundColor: '#ef4444',
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  btnDisabled: { opacity: 0.5 },
+  btnIcon: { fontSize: 18 },
+  btnWhite: { color: '#fff', fontWeight: 'bold', fontSize: 17 },
+  btnDone: { color: 'rgba(255,255,255,0.8)', fontSize: 12 },
 });

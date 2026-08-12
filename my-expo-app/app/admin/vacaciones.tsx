@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, Alert, StyleSheet } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { View, Text, FlatList, TouchableOpacity, Alert, ActivityIndicator, StyleSheet } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { listarPermisos, editarPermiso } from '../../services/api';
 import { Permiso } from '../../types';
 
@@ -8,17 +9,27 @@ type Periodo = 'semana' | 'mes' | 'anio';
 export default function VacacionesScreen() {
   const [permisos, setPermisos] = useState<Permiso[]>([]);
   const [periodo, setPeriodo] = useState<Periodo>('mes');
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<number | null>(null);
 
   const cargarPermisos = async () => {
+    setLoading(true);
     try { const res = await listarPermisos(periodo); setPermisos(res.data); }
     catch (e) { console.error(e); }
+    setLoading(false);
   };
 
-  useEffect(() => { cargarPermisos(); }, [periodo]);
+  useFocusEffect(
+    useCallback(() => {
+      cargarPermisos();
+    }, [periodo])
+  );
 
   const handleEstado = async (id: number, estado: string) => {
-    try { await editarPermiso(id, { estado }); Alert.alert('Éxito', `Permiso ${estado}`); cargarPermisos(); }
+    setActionLoading(id);
+    try { await editarPermiso(id, { estado }); Alert.alert('Exito', `Permiso ${estado}`); cargarPermisos(); }
     catch { Alert.alert('Error', 'No se pudo actualizar'); }
+    setActionLoading(null);
   };
 
   const getEstadoColor = (estado: string) => {
@@ -41,6 +52,12 @@ export default function VacacionesScreen() {
         ))}
       </View>
 
+      {loading ? (
+        <View style={s.centered}>
+          <ActivityIndicator size="large" color="#2563eb" />
+          <Text style={s.loadingText}>Cargando permisos...</Text>
+        </View>
+      ) : (
       <FlatList
         data={permisos}
         keyExtractor={(item) => item.id.toString()}
@@ -61,11 +78,11 @@ export default function VacacionesScreen() {
               </View>
               {item.estado === 'pendiente' && (
                 <View style={s.actionRow}>
-                  <TouchableOpacity onPress={() => handleEstado(item.id, 'aprobado')} style={s.aprobarBtn}>
-                    <Text style={s.aprobarBtnText}>Aprobar</Text>
+                  <TouchableOpacity onPress={() => handleEstado(item.id, 'aprobado')} style={s.aprobarBtn} disabled={actionLoading === item.id}>
+                    {actionLoading === item.id ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.aprobarBtnText}>Aprobar</Text>}
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => handleEstado(item.id, 'rechazado')} style={s.rechazarBtn}>
-                    <Text style={s.rechazarBtnText}>Rechazar</Text>
+                  <TouchableOpacity onPress={() => handleEstado(item.id, 'rechazado')} style={s.rechazarBtn} disabled={actionLoading === item.id}>
+                    {actionLoading === item.id ? <ActivityIndicator color="#fff" size="small" /> : <Text style={s.rechazarBtnText}>Rechazar</Text>}
                   </TouchableOpacity>
                 </View>
               )}
@@ -75,12 +92,15 @@ export default function VacacionesScreen() {
         contentContainerStyle={{ paddingBottom: 20 }}
         ListEmptyComponent={<Text style={s.empty}>No hay permisos registrados</Text>}
       />
+      )}
     </View>
   );
 }
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f3f4f6' },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, color: '#6b7280', fontSize: 14 },
   periodRow: { flexDirection: 'row', gap: 8, padding: 16 },
   periodBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center', backgroundColor: '#fff' },
   periodBtnActive: { backgroundColor: '#2563eb' },

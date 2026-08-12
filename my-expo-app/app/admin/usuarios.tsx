@@ -1,21 +1,29 @@
-import { useState, useEffect } from 'react';
-import { View, Text, FlatList, TouchableOpacity, Alert, StyleSheet } from 'react-native';
+import { useState, useEffect, useCallback } from 'react';
+import { View, Text, FlatList, TouchableOpacity, Alert, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { listarUsuarios, eliminarUsuario } from '../../services/api';
 import { Usuario } from '../../types';
 
 export default function UsuariosScreen() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   const cargarUsuarios = async () => {
+    setLoading(true);
     try {
       const res = await listarUsuarios();
       setUsuarios(res.data);
     } catch (e) { console.error(e); }
+    setLoading(false);
   };
 
-  useEffect(() => { cargarUsuarios(); }, []);
+  useFocusEffect(
+    useCallback(() => {
+      cargarUsuarios();
+    }, [])
+  );
 
   const handleEliminar = (id: number, nombre: string) => {
     Alert.alert('Eliminar', `¿Eliminar a ${nombre}?`, [
@@ -44,6 +52,12 @@ export default function UsuariosScreen() {
 
   return (
     <View style={s.screen}>
+      {loading ? (
+        <View style={s.centered}>
+          <ActivityIndicator size="large" color="#2563eb" />
+          <Text style={s.loadingText}>Cargando usuarios...</Text>
+        </View>
+      ) : (
       <FlatList
         data={usuarios}
         keyExtractor={(item) => item.id.toString()}
@@ -55,12 +69,15 @@ export default function UsuariosScreen() {
           </View>
         }
       />
+      )}
     </View>
   );
 }
 
 const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f3f4f6' },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingText: { marginTop: 12, color: '#6b7280', fontSize: 14 },
   card: { backgroundColor: '#fff', padding: 16, marginHorizontal: 16, marginBottom: 8, borderRadius: 8 },
   cardRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   cardName: { fontSize: 18, fontWeight: 'bold', color: '#1f2937' },

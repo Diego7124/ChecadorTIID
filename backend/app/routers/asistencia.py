@@ -1,12 +1,14 @@
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, extract
 
 from ..database import get_db
-from ..models import Asistencia, Usuario
+from ..models import Asistencia, Usuario, Horario
 from ..schemas import AsistenciaRequest, AsistenciaResponse, MessageResponse
 from ..services.facial import verify_face_against_all
+
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/asistencia", tags=["Asistencia"])
 
@@ -17,11 +19,22 @@ def registrar_entrada(data: AsistenciaRequest, db: Session = Depends(get_db)):
     if not result:
         raise HTTPException(status_code=401, detail="Rostro no reconocido")
 
+    usuario_id = result["usuario_id"]
+    hoy = date.today()
+
+    ya_registro = (
+        db.query(Asistencia)
+        .filter(Asistencia.usuario_id == usuario_id, Asistencia.fecha == hoy, Asistencia.tipo == "entrada")
+        .first()
+    )
+    if ya_registro:
+        raise HTTPException(status_code=400, detail="Ya registraste tu entrada hoy")
+
     now = datetime.now()
     asistencia = Asistencia(
-        usuario_id=result["usuario_id"],
+        usuario_id=usuario_id,
         tipo="entrada",
-        fecha=now.date(),
+        fecha=hoy,
         hora=now.time(),
         confianza=result["confianza"],
     )
@@ -29,7 +42,7 @@ def registrar_entrada(data: AsistenciaRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(asistencia)
 
-    usuario = db.query(Usuario).filter(Usuario.id == result["usuario_id"]).first()
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     return AsistenciaResponse(
         id=asistencia.id,
         usuario_id=asistencia.usuario_id,
@@ -48,11 +61,30 @@ def registrar_salida(data: AsistenciaRequest, db: Session = Depends(get_db)):
     if not result:
         raise HTTPException(status_code=401, detail="Rostro no reconocido")
 
+    usuario_id = result["usuario_id"]
+    hoy = date.today()
+
+    ya_registro_salida = (
+        db.query(Asistencia)
+        .filter(Asistencia.usuario_id == usuario_id, Asistencia.fecha == hoy, Asistencia.tipo == "salida")
+        .first()
+    )
+    if ya_registro_salida:
+        raise HTTPException(status_code=400, detail="Ya registraste tu salida hoy")
+
+    tiene_entrada = (
+        db.query(Asistencia)
+        .filter(Asistencia.usuario_id == usuario_id, Asistencia.fecha == hoy, Asistencia.tipo == "entrada")
+        .first()
+    )
+    if not tiene_entrada:
+        raise HTTPException(status_code=400, detail="Primero debes registrar tu entrada")
+
     now = datetime.now()
     asistencia = Asistencia(
-        usuario_id=result["usuario_id"],
+        usuario_id=usuario_id,
         tipo="salida",
-        fecha=now.date(),
+        fecha=hoy,
         hora=now.time(),
         confianza=result["confianza"],
     )
@@ -60,7 +92,7 @@ def registrar_salida(data: AsistenciaRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(asistencia)
 
-    usuario = db.query(Usuario).filter(Usuario.id == result["usuario_id"]).first()
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
     return AsistenciaResponse(
         id=asistencia.id,
         usuario_id=asistencia.usuario_id,
@@ -184,3 +216,64 @@ def historial_area(
             created_at=a.created_at,
         ))
     return result
+
+
+# ============ ESTADO HOY ============
+
+class EstadoHoyResponse(BaseModel):
+    horario_nombre: str = ""
+    hora_entrada: str = ""
+    hora_salida: str = ""
+    tolerancia_min: int = 0
+    registro_entrada: str = ""
+    registro_salida: str = ""
+    retraso_min: int = 0
+    tiene_retardo: bool = False
+
+
+@router.get("/estado-hoy/{usuario_id}", response_model=EstadoHoyResponse)
+def estado_hoy(usuario_id: int, db: Session = Depends(get_db)):
+    usuario = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    hoy = date.today()
+    resp = EstadoHoyResponse()
+
+    if usuario.horarios:
+        h = usuario.horarios[0]
+        resp.horario_nombre = h.nombre
+        resp.hora_entrada = h.hora_entrada.strftime("%H:%M") if isinstance(h.hora_entrada, time) else str(h.hora_entrada)
+        resp.hora_salida = h.hora_salida.strftime("%H:%M") if isinstance(h.hora_salida, time) else str(h.hora_salida)
+        resp.tolerancia_min = h.tolerancia_min
+
+    entrada = (
+        db.query(Asistencia)
+        .filter(Asistencia.usuario_id == usuario_id, Asistencia.fecha == hoy, Asistencia.tipo == "entrada")
+        .first()
+    )
+    if entrada:
+        resp.registro_entrada = entrada.hora.strftime("%H:%M") if isinstance(entrada.hora, time) else str(entrada.hora)
+
+        if usuario.horarios:
+            h = usuario.horarios[0]
+            hora_prog = h.hora_entrada if isinstance(h.hora_entrada, time) else time.fromisoformat(str(h.hora_entrada))
+            hora_real = entrada.hora if isinstance(entrada.hora, time) else time.fromisoformat(str(entrada.hora))
+
+            dt_prog = datetime.combine(hoy, hora_prog)
+            dt_real = datetime.combine(hoy, hora_real)
+            diff = (dt_real - dt_prog).total_seconds() / 60
+
+            if diff > h.tolerancia_min:
+                resp.tiene_retardo = True
+                resp.retraso_min = int(diff)
+
+    salida = (
+        db.query(Asistencia)
+        .filter(Asistencia.usuario_id == usuario_id, Asistencia.fecha == hoy, Asistencia.tipo == "salida")
+        .first()
+    )
+    if salida:
+        resp.registro_salida = salida.hora.strftime("%H:%M") if isinstance(salida.hora, time) else str(salida.hora)
+
+    return resp

@@ -42,11 +42,27 @@ export default function AdminLayout() {
         }}
       />
       <Tabs.Screen
+        name="asignar-horario"
+        options={{
+          title: 'Asignar',
+          headerTitle: 'Asignar Horarios',
+          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>🔗</Text>,
+        }}
+      />
+      <Tabs.Screen
         name="vacaciones"
         options={{
           title: 'Permisos',
           headerTitle: 'Historial de Permisos',
           tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>📅</Text>,
+        }}
+      />
+      <Tabs.Screen
+        name="reportes"
+        options={{
+          title: 'Reportes',
+          headerTitle: 'Reportes',
+          tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 20 }}>📊</Text>,
         }}
       />
       <Tabs.Screen
