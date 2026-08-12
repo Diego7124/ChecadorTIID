@@ -24,6 +24,36 @@ Aplicación móvil completa (Frontend + Backend) para el control de asistencia, 
 - **Imágenes por registro:** 5 fotografías promediadas en un solo vector
 - **Normalización:** L2-norm del vector promedio
 
+## Funcionalidades
+
+### Login
+- Login con credenciales (email + contraseña)
+- Login facial con cámara frontal, guía oval y countdown de 3 segundos
+- Redirección automática según rol (admin → `/admin`, usuario → `/usuario`)
+- Diseño moderno con fondo oscuro, cards glassmorphism y decoraciones
+
+### Módulo Admin
+- **Gestión de Usuarios:** Lista, eliminar con confirmación
+- **Registro de Usuarios:** Formulario + captura de 5 fotos faciales con guía oval
+- **Control de Asistencia:** Botones Entrada/Salida con cámara, lista del día con confianza %
+- **Gestión de Horarios:** CRUD con toggle AM/PM, conversión automática a formato 24h
+- **Asignación de Horarios:** Asignar/remover horarios a usuarios con modal de selección
+- **Permisos:** Lista con filtros (Semana/Mes/Año), Aprobar/Rechazar pendientes
+- **Reportes:** 3 tipos de reportes con selector de periodo:
+  - **Por Usuario:** Entradas, salidas, retardos, faltas, horas trabajadas
+  - **Retardos:** Lista cronológica con detalle de retraso
+  - **Faltas:** Días sin registro de entrada
+
+### Módulo Usuario
+- **Checar:** Botones Entrada/Salida con validación (no repetir en el mismo día), muestra horario asignado y estado de retardo
+- **Historial:** Resumen de entradas/salidas con filtros de período
+- **Permisos:** Crear permisos (Personal/Vacaciones/Médico) con date pickers
+
+### General
+- **Auto-refresh:** Todas las pantallas se refrescan al navegar (`useFocusEffect`)
+- **Loading indicators:** Spinners en carga de datos y botones de acción
+- **Validación de asistencia:** No se puede registrar 2 entradas o 2 salidas en el mismo día, la salida requiere entrada previa
+
 ## Estructura del Proyecto
 
 ```
@@ -33,6 +63,7 @@ ChecadorTIID/
 │   ├── checador.db                       # Base de datos SQLite
 │   ├── requirements.txt                  # Dependencias Python
 │   ├── seed_admin.py                     # Script para crear admin inicial
+│   ├── limpiar_usuarios.py              # Script para borrar usuarios (conserva admin)
 │   ├── venv/                             # Entorno virtual
 │   └── app/
 │       ├── main.py                       # Entrada FastAPI
@@ -41,10 +72,11 @@ ChecadorTIID/
 │       ├── schemas.py                    # Schemas Pydantic
 │       ├── uploads/                      # Imágenes faciales almacenadas
 │       ├── routers/
-│       │   ├── usuarios.py               # Endpoints de usuarios y auth
-│       │   ├── asistencia.py             # Endpoints de asistencia
+│       │   ├── usuarios.py               # Endpoints de usuarios, auth y asignación de horarios
+│       │   ├── asistencia.py             # Endpoints de asistencia y estado del día
 │       │   ├── horarios.py               # Endpoints de horarios
-│       │   └── vacaciones.py             # Endpoints de permisos
+│       │   ├── vacaciones.py             # Endpoints de permisos
+│       │   └── reportes.py              # Endpoints de reportes
 │       └── services/
 │           ├── auth.py                   # Hash bcrypt + JWT
 │           └── facial.py                 # Registro y verificación facial
@@ -58,9 +90,6 @@ ChecadorTIID/
     │   └── authStore.ts                  # Estado global (Zustand)
     ├── services/
     │   └── api.ts                        # Cliente HTTP (Axios)
-    ├── components/
-    │   ├── ScreenContent.tsx             # Wrapper de pantalla
-    │   └── EditScreenInfo.tsx            # Info de desarrollo
     └── app/
         ├── _layout.tsx                   # Layout raíz (Stack)
         ├── index.tsx                     # Pantalla de login
@@ -69,13 +98,15 @@ ChecadorTIID/
         │   ├── usuarios.tsx              # Lista de usuarios
         │   ├── registrar-usuario.tsx     # Registro con captura facial
         │   ├── asistencia.tsx            # Toma de asistencia
-        │   ├── horarios.tsx              # Gestión de horarios
+        │   ├── horarios.tsx              # Gestión de horarios (AM/PM)
+        │   ├── asignar-horario.tsx       # Asignar horarios a usuarios
         │   ├── vacaciones.tsx            # Historial de permisos
+        │   ├── reportes.tsx             # Reportes (usuario/retardos/faltas)
         │   ├── historial-usuario.tsx     # Historial por usuario
         │   └── historial-area.tsx        # Historial por área
         └── usuario/
             ├── _layout.tsx               # Layout usuario (Tabs)
-            ├── checar.tsx                # Checar entrada/salida
+            ├── checar.tsx                # Checar entrada/salida con horario asignado
             ├── historial.tsx             # Mi historial
             └── permisos.tsx              # Crear/editar permisos
 ```
@@ -129,8 +160,8 @@ ChecadorTIID/
 |-------|------|-------------|
 | id | INTEGER PK | ID único (autoincrement) |
 | nombre | TEXT NOT NULL | Nombre del turno (ej: "Matutino") |
-| hora_entrada | TIME NOT NULL | Hora de entrada |
-| hora_salida | TIME NOT NULL | Hora de salida |
+| hora_entrada | TIME NOT NULL | Hora de entrada (formato 24h) |
+| hora_salida | TIME NOT NULL | Hora de salida (formato 24h) |
 | tolerancia_min | INTEGER | Minutos de tolerancia (default: 15) |
 | activo | BOOLEAN | Habilitado/deshabilitado (default: true) |
 | created_at | DATETIME | Fecha de creación |
@@ -176,13 +207,22 @@ ChecadorTIID/
 | POST | `/api/usuarios/login` | email, password | Login con credenciales |
 | POST | `/api/usuarios/login-facial` | imagen_base64 | Login con reconocimiento facial |
 
+### Horarios por Usuario
+
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| GET | `/api/usuarios/{id}/horarios` | Listar horarios asignados a un usuario |
+| POST | `/api/usuarios/{id}/horarios/{horario_id}` | Asignar horario a usuario |
+| DELETE | `/api/usuarios/{id}/horarios/{horario_id}` | Remover horario de usuario |
+
 ### Asistencia
 
 | Método | Ruta | Body/Params | Descripción |
 |--------|------|-------------|-------------|
-| POST | `/api/asistencia/entrada` | imagen_base64 | Registrar entrada facial |
-| POST | `/api/asistencia/salida` | imagen_base64 | Registrar salida facial |
+| POST | `/api/asistencia/entrada` | imagen_base64 | Registrar entrada facial (valida duplicados) |
+| POST | `/api/asistencia/salida` | imagen_base64 | Registrar salida facial (requiere entrada previa) |
 | GET | `/api/asistencia/hoy` | — | Asistencia del día actual |
+| GET | `/api/asistencia/estado-hoy/{usuario_id}` | — | Estado del día: horario, registros, retardo |
 | GET | `/api/asistencia/usuario/{id}` | ?periodo=semana/mes/anio&fecha_ref=YYYY-MM-DD | Historial por usuario |
 | GET | `/api/asistencia/area/{area}` | ?periodo=semana/mes/anio&fecha_ref=YYYY-MM-DD | Historial por área |
 
@@ -190,7 +230,7 @@ ChecadorTIID/
 
 | Método | Ruta | Body | Descripción |
 |--------|------|------|-------------|
-| POST | `/api/horarios/` | nombre, hora_entrada, hora_salida, tolerancia_min | Crear horario |
+| POST | `/api/horarios/` | nombre, hora_entrada ("HH:MM"), hora_salida ("HH:MM"), tolerancia_min | Crear horario |
 | GET | `/api/horarios/` | — | Listar horarios activos |
 | GET | `/api/horarios/{id}` | — | Obtener horario por ID |
 | PUT | `/api/horarios/{id}` | nombre, hora_entrada, hora_salida, tolerancia_min, activo | Editar horario |
@@ -206,33 +246,14 @@ ChecadorTIID/
 | PUT | `/api/permisos/{id}` | tipo, fecha_inicio, fecha_fin, motivo, estado | Editar/aprobar/rechazar permiso |
 | DELETE | `/api/permisos/{id}` | — | Eliminar permiso |
 
-## Pantallas del Frontend
+### Reportes
 
-### Login (`app/index.tsx`)
-
-- Login con credenciales (email + contraseña)
-- Login facial con cámara frontal, guía oval y countdown de 3 segundos
-- Redirección automática según rol (admin → `/admin`, usuario → `/usuario`)
-
-### Módulo Admin (`app/admin/`)
-
-| Pantalla | Archivo | Funcionalidad |
-|----------|---------|---------------|
-| Usuarios | `usuarios.tsx` | Lista de usuarios con nombre, email, rol y área. Botón de eliminar con confirmación. |
-| Registrar Usuario | `registrar-usuario.tsx` | Formulario + captura de 5 fotos faciales con guía oval, barra de progreso y tips. |
-| Asistencia | `asistencia.tsx` | Botones de Entrada/Salida. Cámara con guía y countdown. Lista de asistencia del día con confianza %. |
-| Horarios | `horarios.tsx` | CRUD de horarios con modal de edición. Muestra nombre, horas de entrada/salida y tolerancia. |
-| Permisos | `vacaciones.tsx` | Lista de permisos con filtros (Semana/Mes/Año). Botones de Aprobar/Rechazar para pendientes. |
-| Hist. Usuario | `historial-usuario.tsx` | Selector de usuario + filtros de período. Historial de asistencia individual. |
-| Hist. Área | `historial-area.tsx` | Selector de área (RH, Sistemas, etc.) + filtros. Historial por departamento. |
-
-### Módulo Usuario (`app/usuario/`)
-
-| Pantalla | Archivo | Funcionalidad |
-|----------|---------|---------------|
-| Checar | `checar.tsx` | Botones de Entrada/Salida con cámara, guía oval y countdown. |
-| Historial | `historial.tsx` | Resumen de entradas/salidas. Filtros de período. Lista de registros. |
-| Permisos | `permisos.tsx` | Crear permisos (Personal/Vacaciones/Médico) con date pickers. Editar/eliminar pendientes. |
+| Método | Ruta | Params | Descripción |
+|--------|------|--------|-------------|
+| GET | `/api/reportes/usuario/{id}` | ?periodo=semana/mes/anio&fecha_ref | Resumen por usuario (entradas, salidas, retardos, faltas, horas) |
+| GET | `/api/reportes/area/{area}` | ?periodo=semana/mes/anio&fecha_ref | Resumen por área |
+| GET | `/api/reportes/retardos` | ?periodo=semana/mes/anio&fecha_ref | Lista de retardos con detalle |
+| GET | `/api/reportes/faltas` | ?periodo=semana/mes/anio&fecha_ref | Días sin asistencia (solo hasta hoy) |
 
 ## Flujo de Reconocimiento Facial
 
@@ -309,6 +330,14 @@ npx expo start
 
 **Nota:** Para uso en dispositivo físico, cambia la IP en `services/api.ts` a la IP de tu máquina en la red local.
 
+### Scripts Útiles
+
+```bash
+# Borrar todos los usuarios excepto el admin
+cd backend
+python limpiar_usuarios.py
+```
+
 ## Credenciales por Defecto
 
 - **Email:** admin@checador.com
@@ -345,4 +374,5 @@ axios ^1.19.0
 expo-camera ~17.0.10
 expo-file-system ~19.0.23
 @react-native-community/datetimepicker 8.4.4
+@react-navigation/native (useFocusEffect)
 ```
